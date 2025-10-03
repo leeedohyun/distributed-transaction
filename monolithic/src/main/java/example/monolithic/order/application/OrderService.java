@@ -1,6 +1,7 @@
 package example.monolithic.order.application;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import example.monolithic.order.application.dto.PlaceOrderCommand;
 import example.monolithic.order.domain.Order;
@@ -30,6 +31,7 @@ public class OrderService {
         this.productService = productService;
     }
 
+    @Transactional
     public void placeOrder(PlaceOrderCommand command) {
         Order order = orderRepository.save(new Order());
         Long totalPrice = 0L;

@@ -34,6 +34,7 @@ $ USE commerce_example;
 
 ## 3. 주문 로직 구현
 ```java
+@Transactional
 public void placeOrder(PlaceOrderCommand command) {
     Order order = orderRepository.save(new Order());
     Long totalPrice = 0L;
