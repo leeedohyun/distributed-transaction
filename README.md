@@ -6,6 +6,7 @@
 - [프로젝트 세팅](#프로젝트-세팅)
   - [1. DB 세팅](#1-db-세팅)
   - [2. 요구사항 정의](#2-요구사항-정의)
+  - [3. 주문 로직 구현](#3-주문-로직-구현)
 
 ## 프로젝트 세팅
 ### 1. DB 세팅
@@ -30,3 +31,42 @@ $ USE commerce_example;
 - 포인트를 사용해야 한다.
 - 주문, 재고, 포인트 데이터의 정합성이 맞아야 한다.
 - 동일한 주문은 1번만 이루어져야 한다.
+
+## 3. 주문 로직 구현
+```java
+public void placeOrder(PlaceOrderCommand command) {
+    Order order = orderRepository.save(new Order());
+    Long totalPrice = 0L;
+
+    for (PlaceOrderCommand.OrderItem item : command.orderItems()) {
+        OrderItem orderItem = new OrderItem(order.getId(), item.productId(), item.quantity());
+        orderItemRepository.save(orderItem);
+
+        Long price = productService.buy(item.productId(), item.quantity());
+        totalPrice += price;
+    }
+
+    pointService.use(1L, totalPrice);
+}
+```
+
+### 주문 테스트
+```http request
+POST http://localhost:8080/order/place
+Content-Type: application/json
+
+{
+    "orderItems": [
+        {
+            "productId": 1,
+            "quantity": 2
+        },
+        {
+            "productId": 2,
+            "quantity": 2
+        }
+    ]
+}
+```
+
+<img width="500" height="300" alt="Image" src="https://github.com/user-attachments/assets/f60b3068-1002-4151-9c88-a254b4619faa" />
