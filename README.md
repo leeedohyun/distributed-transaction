@@ -6,7 +6,12 @@
 - [프로젝트 세팅](#프로젝트-세팅)
   - [1. DB 세팅](#1-db-세팅)
   - [2. 요구사항 정의](#2-요구사항-정의)
-  - [3. 주문 로직 구현](#3-주문-로직-구현)
+- [주문 로직 구현](#주문-로직-구현)
+  - [3-1. 데이터 정합성 문제](#3-1-데이터-정합성-문제)
+  - [3-2. 동일한 주문 문제](#3-2-동일한-주문-문제)
+  - [3-3. 여러 번 실행되는 문제](#3-3-여러-번-실행되는-문제)
+    - [Redis 세팅](#redis-세팅)
+    - [Redis Lock 구현](#redis-lock-구현)
 
 ## 프로젝트 세팅
 ### 1. DB 세팅
@@ -25,16 +30,15 @@ $ CREATE DATABASE commerce_example; # DB Table 생성
 $ USE commerce_example;         
 ```
 
-## 2. 요구사항 정의
+### 2. 요구사항 정의
 - 주문 데이터를 저장해야 한다.
 - 재고 관리를 해야 한다.
 - 포인트를 사용해야 한다.
 - 주문, 재고, 포인트 데이터의 정합성이 맞아야 한다.
 - 동일한 주문은 1번만 이루어져야 한다.
 
-## 3. 주문 로직 구현
+## 주문 로직 구현
 ```java
-@Transactional
 public void placeOrder(PlaceOrderCommand command) {
     Order order = orderRepository.save(new Order());
     Long totalPrice = 0L;
@@ -51,7 +55,6 @@ public void placeOrder(PlaceOrderCommand command) {
 }
 ```
 
-### 주문 테스트
 ```http request
 POST http://localhost:8080/order/place
 Content-Type: application/json
@@ -71,3 +74,90 @@ Content-Type: application/json
 ```
 
 <img width="500" height="300" alt="Image" src="https://github.com/user-attachments/assets/f60b3068-1002-4151-9c88-a254b4619faa" />
+
+### 3-1. 데이터 정합성 문제
+- Order 저장과 Product 저장은 성공했지만 Point 저장이 실패하면 Point 저장이 되지 않고 Order, Product 저장은 된 상태가 됨
+- 해결책: 트랜잭션의 원자성을 이용해서 모두 성공하거나 모두 실패하게 만들기
+
+```mermaid
+graph LR
+  A[Order 저장] --> B[Product 저장]
+  B -->|💣| C[Point 저장]
+```
+
+```java
+@Transactional
+public void placeOrder(PlaceOrderCommand command) {
+    ...
+}
+```
+
+### 3-2. 동일한 주문 문제
+- 동일한 주문이 여러 번 실행됨
+- 해결책: 주문 id를 클라이언트에게 반환하여 동일한 주문인지 판별
+
+```mermaid
+sequenceDiagram
+    participant 클라이언트
+    participant 서버
+    participant DB
+    
+    클라이언트->>서버: 주문하기 요청
+    서버->>DB: 주문 생성, 주문 아이템 정보 저장
+    DB->>서버: 
+    서버->>클라이언트: 생성된 주문 id 반환
+    클라이언트->>서버: 결제 요청 (with 주문 id)
+    서버->>DB: 재고 차감, 포인트 사용
+    DB->>서버: 
+    서버->>클라이언트: 결과 반환
+```
+
+### 3-3. 여러 번 실행되는 문제
+- 위 과정을 통해 동일한 주문을 판별할 수 있지만, 여러 번 실행되는 문제는 여전히 존재
+- 해결책: 여러 번 실행되지 않도록 Lock 활용
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Server
+    participant Redis
+    
+    Client ->> Server: 요청 1 - 주문 요청
+    Server ->> Redis: 요청 1 - Lock 점유
+    Server ->> Server: 요청 1 로직 수행 중
+    
+    Client ->> Server: 요청 2 - 주문 요청
+    Server ->> Redis: 요청 2 - Lock 점유시도
+    Redis --x Server: ❌
+    Server --x Client: ❌
+    
+    Server ->> Redis: 요청 1 - Lock 해제
+    Redis -->> Server: 
+```
+
+#### Redis 세팅
+```
+docker pull redis
+docker run --name myredis -p 6379:6379 -d redis
+docker exec -it myredis redis-cli
+```
+#### Redis Lock 구현
+```java
+@Service
+public class RedisLockService {
+
+    private final StringRedisTemplate stringRedisTemplate;
+
+    public RedisLockService(StringRedisTemplate stringRedisTemplate) {
+        this.stringRedisTemplate = stringRedisTemplate;
+    }
+
+    public boolean tryLock(String key, String value) {
+        return stringRedisTemplate.opsForValue().setIfAbsent(key, value);
+    }
+
+    public void releaseLock(String key) {
+        stringRedisTemplate.delete(key);
+    }
+}
+```
