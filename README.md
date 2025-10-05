@@ -23,6 +23,14 @@
     - [3-1. Monolithic 트랜잭션 처리](#3-1-monolithic-트랜잭션-처리)
     - [3-2. MSA 트랜잭션 처리](#3-2-msa-트랜잭션-처리)
     - [3-3. 분산 트랜잭션을 보장하기 위한 방법](#3-3-분산-트랜잭션을-보장하기-위한-방법)
+- [MSA 환경에서 트랜잭션 제어하는 방법](#msa-환경에서-트랜잭션-제어하는-방법)
+  - [1. 2PC (Two-Phase Commit)](#1-2pc-two-phase-commit)
+    - [1-1. 2PC란?](#1-1-2pc란)
+    - [1-2. 장애 시나리오와 문제점](#1-2-장애-시나리오와-문제점)
+    - [1-3. MySQL XA 트랜잭션을 이용한 실습](#1-3-mysql-xa-트랜잭션을-이용한-실습)
+    - [1-4. 장점](#1-4-장점)
+    - [1-5. 단점](#1-5-단점)
+    - [1-6. 실무에서는?](#1-6-실무에서는)
 
 # 프로젝트 세팅
 ## 1. DB 세팅
@@ -290,3 +298,107 @@ sequenceDiagram
 - 2PC
 - TCC
 - SAGA
+
+# MSA 환경에서 트랜잭션 제어하는 방법
+## 1. 2PC (Two-Phase Commit)
+### 1-1. 2PC란?
+- 분산 시스템에서 트랜잭션의 원자성을 보장하기 위해 사용되는 프로토콜
+- 트랜잭션을 두 단계로 나누어 처리
+  - Prepare 단계: 트랜잭션 매니저가 참여자에게 작업 준비 가능성 확인
+  - Commit 단계: Prepare 단계에서 모든 참여자가 준비되었다고 응답하면 트랜잭션 매니저가 Commit 명령을 보내 작업 완료
+- 대표적인 구현으로는 XA 트랜잭션이 존재
+
+```mermaid
+sequenceDiagram
+    participant Coordinator
+    participant Mysql-1
+    participant Mysql-2
+
+    Note left of Coordinator: 메모리에만 올리고 disk에는 적재하지 않음<br>관련 데이터에 Lock 잡음
+
+    Coordinator->>Mysql-1: Begin Transaction
+    Mysql-1->>Coordinator: 
+    Coordinator->>Mysql-1: update query
+    Mysql-1->>Coordinator: 
+    Coordinator->>Mysql-2: Begin Transaction, insert query
+    Mysql-2->>Coordinator: 
+
+    Coordinator->>Mysql-1: Prepare
+    Mysql-1->>Coordinator: 
+    Coordinator->>Mysql-2: Prepare
+    Mysql-2->>Coordinator: 
+
+    Note left of Coordinator: 실제 disk에 적재합니다.<br>데이터에 걸린 Lock 해제
+
+    Coordinator->>Mysql-1: Commit
+    Mysql-1->>Coordinator: 
+    Coordinator->>Mysql-2: Commit
+    Mysql-2->>Coordinator: 
+```
+
+### 1-2. 장애 시나리오와 문제점
+- 트랜잭션을 얻어오고 쿼리 수행을 모두 했지만 Prepare 단계에서 실패한다면 데이터베이스는 롤백을 하게 됨
+- Prepare 단계까지 모두 성공했지만 Commit 단계에서 실패한다면 데이터베이스는 커밋을 하지 못하고 대기 상태로 남게 됨
+  - Prepare 단계 이후 참여자는 스스로 롤백을 하면 안 되기 때문에 Coordinator의 커밋 또는 롤백 명령을 기다림
+  - 커밋 명령이 일시적으로 실패했다면 Coordinator는 커밋을 재시도 해야 함 -> 트랜잭션의 원자성 유지하기 위한 핵심 절차
+  - Mysql-2가 커밋이 불가능한 경우 사람이 수동으로 커밋하거나 데이터 조작을 해야 함.
+  - Mysql-2가 락을 잡고 있어 다른 곳에서는 접근할 수 없게 됨.
+
+### 1-3. MySQL XA 트랜잭션을 이용한 실습
+- 터미널 창 3개를 연다.
+
+```mysql
+# 터미널 1
+CREATE DATABASE 2pc1;
+use 2pc1;
+CREATE TABLE product 
+(
+    id INT PRIMARY KEY,
+    quantity INT
+);
+insert into product values (1, 1000);
+xa start 'product_1';
+update product set quantity = 900 where id = 1;
+xa end 'product_1';
+
+# 터미널 2
+CREATE DATABASE 2pc2;
+use 2pc2;
+CREATE TABLE point
+(
+    id INT PRIMARY KEY,
+    amount INT
+);
+xa start 'point_1';
+insert into point values (1, 1000);
+xa end 'point_1';
+
+# 터미널 3
+use 2pc1;
+update product set quantity = 800 where id = 1; # lock 걸림
+```
+
+```mysql
+# 터미널 1
+xa prepare 'product_1';
+xa commit 'product_1';
+
+# 터미널 2
+xa prepare 'point_1';
+xa commit 'point_1';
+
+# 터미널 3
+# lock 해제 후 update 쿼리 수행됨
+```
+
+### 1-4. 장점
+- 강력한 정합성 보장 -> 분산 트랜잭션 상황에서 여러 자원에 대한 트랜잭션을 하나처럼 처리할 수 있게 해줌.
+- 사용하는 데이터베이스 XA를 지원한다면 구현 난이도가 낮음.
+
+### 1-5. 단점
+- 제한된 호환성: 사용하는 데이터베이스 XA를 지원하지 않는다면 구현이 어려움.
+- 낮은 가용성: prepare 단계 이후 커밋이 완료될 때까지 락 유지(관련된 로우나 언두 로그 등을 유지하면서 대기)
+- 장애 복구 어려움: 장애 복구 시 수동 개입 필요
+
+### 1-6. 실무에서는?
+- 2PC 보다는 다른 방법을 사용하여 분산 트랜잭션 구현
