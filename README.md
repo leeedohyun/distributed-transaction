@@ -402,3 +402,50 @@ xa commit 'point_1';
 
 ### 1-6. 실무에서는?
 - 2PC 보다는 다른 방법을 사용하여 분산 트랜잭션 구현
+
+## 2. TCC (Try-Confirm-Cancel)
+### 2-1. TCC란?
+- 분산 시스템에서 데이터 정합성을 보장하기 위해 사용하는 분산 트랜잭션 처리 방식
+- 전통적인 트랜잭션은 데이터베이스의 커밋과 롤백에 의존하는 반면, TCC는 애플리케이션 레벨에서 논리적으로 트랜잭션을 관리
+  - Try 단계: 필요한 리소스를 점유할 수 있는지 검사하고 임시로 예약
+  - Confirm 단계: 실제 리소스를 확정 처리하여 반영
+  - Cancel 단계: 문제가 생긴 경우, 예약 상태를 취소하여 원복
+- Try, Confirm, Cancel 단계는 멱등하게 설계되어야 함.
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Order Server
+    participant Product Server
+    participant Point Server
+
+    Client->>Order Server: 주문 + 결제 요청
+
+    Order Server->>Product Server: Try : 재고 예약
+    Product Server->>Order Server: 
+    Order Server->>Point Server: Try : 포인트 사용 예약
+    Point Server->>Order Server: 
+
+    alt 예약 성공 시
+        Order Server->>Product Server: Confirm : 재고 차감 확정
+        Product Server->>Order Server: 
+        Order Server->>Point Server: Confirm : 포인트 차감 확정
+        Point Server->>Order Server: 
+    else 예약 실패 시
+        Order Server->>Product Server: Cancel : 재고 예약 취소
+        Product Server->>Order Server: 
+        Order Server->>Point Server: Cancel : 포인트 예약 취소
+        Point Server->>Order Server: 
+    end
+    Order Server->>Client: 
+```
+### 2-2. 장점
+- 확장성과 성능에 유리
+  - 2PC에 비해 데이터베이스 Lock 점유 시간이 짧음.
+  - 2PC에 비해 Long Transaction에 덜 취약
+- 장애 복구와 재시도 처리에 유연
+
+### 2-3. 단점
+- 구현 복잡성 증가
+  - 모든 단계 (Try, Confirm, Cancel)를 멱등하게 설계해야 함.
+  - 네트워크 오류, 재시도 시나리오를 고려한 복잡한 로직 필요
