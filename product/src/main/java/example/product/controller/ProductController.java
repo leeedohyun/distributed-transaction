@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.RestController;
 import example.product.application.ProductFacadeService;
 import example.product.application.RedisLockService;
 import example.product.application.dto.ProductReservedResult;
+import example.product.controller.dto.ProductReserveCancelRequest;
 import example.product.controller.dto.ProductReserveConfirmRequest;
 import example.product.controller.dto.ProductReserveRequest;
 import example.product.controller.dto.ProductReserveResponse;
@@ -43,14 +44,30 @@ public class ProductController {
     @PostMapping("/product/confirm")
     public void confirm(@RequestBody ProductReserveConfirmRequest request) {
         String key = "product:" + request.requestId();
-        boolean acquired = redisLockService.tryLock(key, request.requestId());
+        boolean acquiredLock = redisLockService.tryLock(key, request.requestId());
 
-        if (!acquired) {
+        if (!acquiredLock) {
             throw new RuntimeException("락 획득에 실패했습니다.");
         }
 
         try {
             productFacadeService.confirmReserve(request.toCommand());
+        } finally {
+            redisLockService.releaseLock(key);
+        }
+    }
+
+    @PostMapping("/product/cancel")
+    public void cancel(@RequestBody ProductReserveCancelRequest request) {
+        String key = "product:" + request.requestId();
+        boolean acquiredLock = redisLockService.tryLock(key, request.requestId());
+
+        if (!acquiredLock) {
+            throw new RuntimeException("락 획득에 실패했습니다.");
+        }
+
+        try {
+            productFacadeService.cancelReserve(request.toCommand());
         } finally {
             redisLockService.releaseLock(key);
         }
