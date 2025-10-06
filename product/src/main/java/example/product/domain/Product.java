@@ -5,6 +5,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 @Entity
 @Table(name = "products")
@@ -18,6 +19,9 @@ public class Product {
     private Long price;
 
     private Long reservedQuantity;
+
+    @Version
+    private Long version;
 
     public Product() {
     }
@@ -37,6 +41,19 @@ public class Product {
         reservedQuantity += requestedQuantity;
 
         return price * requestedQuantity;
+    }
+
+    public void confirm(Long  requestedQuantity) {
+        if (this.quantity < requestedQuantity) {
+            throw new RuntimeException("재고가 부족합니다.");
+        }
+
+        if (this.reservedQuantity < requestedQuantity) {
+            throw new RuntimeException("예약된 수량이 부족합니다.");
+        }
+
+        this.quantity -= requestedQuantity;
+        this.reservedQuantity -= requestedQuantity;
     }
 
     public Long calculatePrice(Long quantity) {

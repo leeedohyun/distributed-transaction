@@ -6,9 +6,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import example.product.application.dto.ProductReserveCommand;
+import example.product.application.dto.ProductReserveConfirmCommand;
 import example.product.application.dto.ProductReservedResult;
 import example.product.domain.Product;
 import example.product.domain.ProductReservation;
+import example.product.domain.ProductReservation.ProductReservationStatus;
 import example.product.infrastructure.ProductRepository;
 import example.product.infrastructure.ProductReservationRepository;
 
@@ -52,5 +54,32 @@ public class ProductService {
         }
 
         return new ProductReservedResult(totalPrice);
+    }
+
+    @Transactional
+    public void confirmReserve(ProductReserveConfirmCommand command) {
+        List<ProductReservation> reservations = productReservationRepository.findAllByRequestId(command.requestId());
+
+        if (reservations.isEmpty()) {
+            throw new RuntimeException("예약된 정보가 없습니다.");
+        }
+
+        boolean alreadyConfirmed = reservations.stream()
+                .anyMatch(item -> item.getStatus() == ProductReservationStatus.CONFIRMED);
+
+        if (alreadyConfirmed) {
+            System.out.println("이미 확정된 예약입니다.");
+            return;
+        }
+
+        for (ProductReservation reservation : reservations) {
+            Product product = productRepository.findById(reservation.getProductId()).orElseThrow();
+
+            product.confirm(reservation.getReservedQuantity());
+            reservation.confirm();
+
+            productRepository.save(product);
+            productReservationRepository.save(reservation);
+        }
     }
 }
