@@ -34,6 +34,26 @@ public class PointReservation {
         this.status = PointReservationStatus.RESERVED;
     }
 
+    public void confirm() {
+        if (this.status == PointReservationStatus.CANCELLED) {
+            throw new RuntimeException("취소된 예약은 확정할 수 없습니다.");
+        }
+
+        this.status = PointReservationStatus.CONFIRMED;
+    }
+
+    public Long getPointId() {
+        return pointId;
+    }
+
+    public Long getReservedAmount() {
+        return reservedAmount;
+    }
+
+    public PointReservationStatus getStatus() {
+        return status;
+    }
+
     public enum PointReservationStatus {
         RESERVED, CONFIRMED, CANCELLED
     }

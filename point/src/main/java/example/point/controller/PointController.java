@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import example.point.application.PointFacadeService;
 import example.point.application.RedisLockService;
+import example.point.controller.dto.PointReserveConfirmRequest;
 import example.point.controller.dto.PointReserveRequest;
 
 @RestController
@@ -30,6 +31,22 @@ public class PointController {
 
         try {
             pointFacadeService.tryReserve(request.toCommand());
+        } finally {
+            redisLockService.releaseLock(key);
+        }
+    }
+
+    @PostMapping("/point/confirm")
+    public void confirm(@RequestBody PointReserveConfirmRequest request) {
+        String key = "point:" + request.requestId();
+        boolean acquiredLock = redisLockService.tryLock(key, request.requestId());
+
+        if (!acquiredLock) {
+            throw new RuntimeException("락 획득에 실패하였습니다.");
+        }
+
+        try {
+            pointFacadeService.confirmReserve(request.toCommand());
         } finally {
             redisLockService.releaseLock(key);
         }
