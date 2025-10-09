@@ -1,5 +1,8 @@
 package example.order.infrastructure.point;
 
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Retryable;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 import example.order.infrastructure.point.dto.PointReserveApiRequest;
@@ -14,6 +17,15 @@ public class PointApiClient {
         this.restClient = restClient;
     }
 
+    @Retryable(
+            retryFor = { Exception.class },
+            noRetryFor = {
+                    HttpClientErrorException.BadRequest.class,
+                    HttpClientErrorException.NotFound.class
+            },
+            maxAttempts = 3,
+            backoff = @Backoff(delay = 500)
+    )
     public void reservePoint(PointReserveApiRequest request) {
         restClient.post()
                 .uri("/point/reserve")

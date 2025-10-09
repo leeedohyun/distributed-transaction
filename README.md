@@ -31,6 +31,15 @@
     - [1-4. 장점](#1-4-장점)
     - [1-5. 단점](#1-5-단점)
     - [1-6. 실무에서는?](#1-6-실무에서는)
+  - [2. TCC (Try-Confirm-Cancel)](#2-tcc-try-confirm-cancel)
+    - [2-1. TCC란?](#2-1-tcc란)
+    - [2-2. 장점](#2-2-장점)
+    - [2-3. 단점](#2-3-단점)
+  - [3. 일시적 오류에 대처하기](#3-일시적-오류에-대처하기)
+    - [3-1. 재고 예약은 성공적으로 마쳤지만 포인트 사용 예약 실패하는 경우](#3-1-재고-예약은-성공적으로-마쳤지만-포인트-사용-예약-실패하는-경우)
+    - [3-2. 커넥션은 확보했지만 포인트 시스템 내부에서 db 커넥션을 얻지 못해서 일시적 오류가 발생한 경우](#3-2-커넥션은-확보했지만-포인트-시스템-내부에서-db-커넥션을-얻지-못해서-일시적-오류가-발생한-경우)
+    - [3-3. 타임아웃이 발생하는 경우](#3-3-타임아웃이-발생하는-경우)
+    - [3-4. 해결책: 재시도 전략](#3-4-해결책-재시도-전략)
 
 # 프로젝트 세팅
 ## 1. DB 세팅
@@ -449,3 +458,74 @@ sequenceDiagram
 - 구현 복잡성 증가
   - 모든 단계 (Try, Confirm, Cancel)를 멱등하게 설계해야 함.
   - 네트워크 오류, 재시도 시나리오를 고려한 복잡한 로직 필요
+
+## 3. 일시적 오류에 대처하기
+- MSA 환경에서는 네트워크 오류 혹은 일시적 장애가 발생할 수 있어, 이를 고려해야 함.
+
+### 3-1. 재고 예약은 성공적으로 마쳤지만 포인트 사용 예약 실패하는 경우
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Order Server
+    participant Product Server
+    participant Point Server
+    participant DB
+
+    Client->>Order Server: 주문 + 결제 요청
+    Order Server->>Product Server: Try : 재고 예약
+    Product Server->>Order Server: 
+    Order Server->>Point Server: Try : 포인트 사용 예약 ❌
+    Order Server->>Client: 
+```
+
+### 3-2. 커넥션은 확보했지만 포인트 시스템 내부에서 db 커넥션을 얻지 못해서 일시적 오류가 발생한 경우
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Order Server
+    participant Product Server
+    participant Point Server
+    participant DB
+
+    Client->>Order Server: 주문 + 결제 요청
+    Order Server->>Product Server: Try : 재고 예약
+    Product Server->>Order Server: 
+    Order Server->>Point Server: Try : 포인트 사용 예약
+    Point Server->>DB: DB Connect....
+    DB->>Point Server: ❌
+    Point Server ->>Order Server: ❌
+    Order Server->>Client: 
+```
+
+### 3-3. 타임아웃이 발생하는 경우
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Order Server
+    participant Product Server
+    participant Point Server
+    participant DB
+
+    Client ->> Order Server: 주문 + 결제 요청
+    Order Server ->> Product Server: Try : 재고 예약
+    Product Server -->> Order Server: 재고 예약 응답
+    Order Server ->> Point Server: Try : 포인트 사용 예약
+    activate Point Server
+    Point Server ->> DB: DB Connect.....
+    DB->>Point Server: 
+    note over Point Server: 처리중..
+    Point Server->> Order Server: ❌
+    Point Server->>DB: 예약 성공!
+    DB->>Point Server: 
+    deactivate Point Server
+
+    Order Server->>Client: 
+```
+
+### 3-4. 해결책: 재시도 전략
+- 일시적인 요청으로 실패한 경우 곧바로 재고 예약을 취소하는 방식보다는 재시도 방식을 통해 정상 처리로 유도하는 것이 더 바람직함.
+- 재시도 전략은 시스템의 신뢰성을 높이고 불필요한 보상 처리 비용을 줄일 수 있음.
+- 다만, 재시도 전략을 안전하게 적용하기 위해서는 시스템이 반드시 멱등성을 보장하도록 설계되어야 함.
