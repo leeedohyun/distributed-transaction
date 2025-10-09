@@ -1,10 +1,10 @@
 package example.order.controller.dto;
 
-import example.monolithic.order.application.dto.PlaceOrderCommand;
+import example.order.application.dto.PlaceOrderCommand;
 
 public record PlaceOrderRequest(Long orderId) {
 
-    public PlaceOrderCommand toPlaceOrderCommand() {
+    public PlaceOrderCommand toCommand() {
         return new PlaceOrderCommand(orderId);
     }
 }

@@ -1,13 +1,11 @@
 package example.order.infrastructure.point;
 
-import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import example.order.infrastructure.point.dto.PointReserveApiRequest;
 import example.order.infrastructure.point.dto.PointReserveCancelApiRequest;
 import example.order.infrastructure.point.dto.PointReserveConfirmApiRequest;
 
-@Component
 public class PointApiClient {
 
     private final RestClient restClient;

@@ -1,6 +1,5 @@
 package example.order.infrastructure.product;
 
-import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import example.order.infrastructure.product.dto.ProductReserveApiRequest;
@@ -8,7 +7,6 @@ import example.order.infrastructure.product.dto.ProductReserveApiResponse;
 import example.order.infrastructure.product.dto.ProductReserveCancelApiRequest;
 import example.order.infrastructure.product.dto.ProductReserveConfirmApiRequest;
 
-@Component
 public class ProductApiClient {
 
     private final RestClient restClient;
