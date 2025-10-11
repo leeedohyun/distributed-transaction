@@ -31,6 +31,18 @@
     - [1-4. 장점](#1-4-장점)
     - [1-5. 단점](#1-5-단점)
     - [1-6. 실무에서는?](#1-6-실무에서는)
+  - [2. TCC (Try-Confirm-Cancel)](#2-tcc-try-confirm-cancel)
+    - [2-1. TCC란?](#2-1-tcc란)
+    - [2-2. 장점](#2-2-장점)
+    - [2-3. 단점](#2-3-단점)
+    - [2-4. 일시적 오류에 대처하기](#3-일시적-오류에-대처하기)
+      - [재고 예약은 성공적으로 마쳤지만 포인트 사용 예약 실패하는 경우](#재고-예약은-성공적으로-마쳤지만-포인트-사용-예약-실패하는-경우)
+      - [커넥션은 확보했지만 포인트 시스템 내부에서 db 커넥션을 얻지 못해서 일시적 오류가 발생한 경우](#커넥션은-확보했지만-포인트-시스템-내부에서-db-커넥션을-얻지-못해서-일시적-오류가-발생한-경우)
+      - [타임아웃이 발생하는 경우](#타임아웃이-발생하는-경우)
+      - [해결책: 재시도 전략](#해결책-재시도-전략)
+    - [2-5. TCC 패턴의 데이터 불일치 상태와 해소 전략](#2-5-tcc-패턴의-데이터-불일치-상태와-해소-전략)
+      - [Confirm 단계 실패로 인한 'Pending' 상태 해소 전략](#confirm-단계-실패로-인한-pending-상태-해소-전략)
+      - [Try 또는 Cancel 단계 실패로 인한 리소스 불일치 해소 전략](#try-또는-cancel-단계-실패로-인한-리소스-불일치-해소-전략)
 
 # 프로젝트 세팅
 ## 1. DB 세팅
@@ -402,3 +414,244 @@ xa commit 'point_1';
 
 ### 1-6. 실무에서는?
 - 2PC 보다는 다른 방법을 사용하여 분산 트랜잭션 구현
+
+## 2. TCC (Try-Confirm-Cancel)
+### 2-1. TCC란?
+- 분산 시스템에서 데이터 정합성을 보장하기 위해 사용하는 분산 트랜잭션 처리 방식
+- 전통적인 트랜잭션은 데이터베이스의 커밋과 롤백에 의존하는 반면, TCC는 애플리케이션 레벨에서 논리적으로 트랜잭션을 관리
+  - Try 단계: 필요한 리소스를 점유할 수 있는지 검사하고 임시로 예약
+  - Confirm 단계: 실제 리소스를 확정 처리하여 반영
+  - Cancel 단계: 문제가 생긴 경우, 예약 상태를 취소하여 원복
+- Try, Confirm, Cancel 단계는 멱등하게 설계되어야 함.
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Order Server
+    participant Product Server
+    participant Point Server
+
+    Client->>Order Server: 주문 + 결제 요청
+
+    Order Server->>Product Server: Try : 재고 예약
+    Product Server->>Order Server: 
+    Order Server->>Point Server: Try : 포인트 사용 예약
+    Point Server->>Order Server: 
+
+    alt 예약 성공 시
+        Order Server->>Product Server: Confirm : 재고 차감 확정
+        Product Server->>Order Server: 
+        Order Server->>Point Server: Confirm : 포인트 차감 확정
+        Point Server->>Order Server: 
+    else 예약 실패 시
+        Order Server->>Product Server: Cancel : 재고 예약 취소
+        Product Server->>Order Server: 
+        Order Server->>Point Server: Cancel : 포인트 예약 취소
+        Point Server->>Order Server: 
+    end
+    Order Server->>Client: 
+```
+### 2-2. 장점
+- 확장성과 성능에 유리
+  - 2PC에 비해 데이터베이스 Lock 점유 시간이 짧음.
+  - 2PC에 비해 Long Transaction에 덜 취약
+- 장애 복구와 재시도 처리에 유연
+
+### 2-3. 단점
+- 구현 복잡성 증가
+  - 모든 단계 (Try, Confirm, Cancel)를 멱등하게 설계해야 함.
+  - 네트워크 오류, 재시도 시나리오를 고려한 복잡한 로직 필요
+
+### 2-4. 일시적 오류에 대처하기
+- MSA 환경에서는 네트워크 오류 혹은 일시적 장애가 발생할 수 있어, 이를 고려해야 함.
+
+#### 재고 예약은 성공적으로 마쳤지만 포인트 사용 예약 실패하는 경우
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Order Server
+    participant Product Server
+    participant Point Server
+    participant DB
+
+    Client->>Order Server: 주문 + 결제 요청
+    Order Server->>Product Server: Try : 재고 예약
+    Product Server->>Order Server: 
+    Order Server->>Point Server: Try : 포인트 사용 예약 ❌
+    Order Server->>Client: 
+```
+
+#### 커넥션은 확보했지만 포인트 시스템 내부에서 db 커넥션을 얻지 못해서 일시적 오류가 발생한 경우
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Order Server
+    participant Product Server
+    participant Point Server
+    participant DB
+
+    Client->>Order Server: 주문 + 결제 요청
+    Order Server->>Product Server: Try : 재고 예약
+    Product Server->>Order Server: 
+    Order Server->>Point Server: Try : 포인트 사용 예약
+    Point Server->>DB: DB Connect....
+    DB->>Point Server: ❌
+    Point Server ->>Order Server: ❌
+    Order Server->>Client: 
+```
+
+#### 타임아웃이 발생하는 경우
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Order Server
+    participant Product Server
+    participant Point Server
+    participant DB
+
+    Client ->> Order Server: 주문 + 결제 요청
+    Order Server ->> Product Server: Try : 재고 예약
+    Product Server -->> Order Server: 재고 예약 응답
+    Order Server ->> Point Server: Try : 포인트 사용 예약
+    activate Point Server
+    Point Server ->> DB: DB Connect.....
+    DB->>Point Server: 
+    note over Point Server: 처리중..
+    Point Server->> Order Server: ❌
+    Point Server->>DB: 예약 성공!
+    DB->>Point Server: 
+    deactivate Point Server
+
+    Order Server->>Client: 
+```
+
+#### 해결책: 재시도 전략
+- 일시적인 요청으로 실패한 경우 곧바로 재고 예약을 취소하는 방식보다는 재시도 방식을 통해 정상 처리로 유도하는 것이 더 바람직함.
+- 재시도 전략은 시스템의 신뢰성을 높이고 불필요한 보상 처리 비용을 줄일 수 있음.
+- 다만, 재시도 전략을 안전하게 적용하기 위해서는 시스템이 반드시 멱등성을 보장하도록 설계되어야 함.
+
+### 2-5. TCC 패턴의 데이터 불일치 상태와 해소 전략
+#### Confirm 단계 실패로 인한 'Pending' 상태 해소 전략
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Order Server
+    participant Product Server
+    participant Point Server
+    participant DB
+
+    Client->>Order Server: 주문 + 결제 요청
+
+    Order Server->>Product Server: Try : 재고 예약
+    Product Server->>Order Server: 
+
+    Order Server->>Point Server: Try : 포인트 사용 예약
+    Point Server->>Order Server: 
+
+    alt 예약 성공 시
+        Order Server->>Product Server: Confirm : 재고 차감 확정
+        Product Server->>Order Server: 
+        Order Server->>Point Server: Confirm : 포인트 차감 확정
+        Point Server->>Order Server: ❌
+        Order Server->> DB: 상태를 Pending으로 변경
+    end
+
+    Order Server->>Client: 
+```
+
+**발생할 수 있는 경우**
+
+|케이스|Order|Product|Point|
+|---|---|---|---|
+|1|Pending|Reserved|Reserved|
+|2|Pending|Confirmed|Reserved|
+|3|Pending|Confirmed|Confirmed|
+
+> 예를 들어, 사용자가 오류를 겪은 후 동일한 상품을 재주문하여 성공했다면, 이전의 Pending 주문을 자동으로 확정하면 의도치 않은 중복 주문이 발생합니다.
+
+**Pending 상태 해소를 위한 관리자 개입 유도**
+
+```mermaid
+graph TB
+    DB[(DB)]
+    Query["select *<br/>from orders<br/>where status = 'pending' and created_at <= ?"]
+    Scheduler[Scheduler]
+    Process((😊))
+    EventHandler["어드민을 통한 제어"]
+
+    DB --> Query
+    Query --> Scheduler
+    Scheduler -->|pending 발생|Process
+    Process --> EventHandler
+
+    style DB fill:#e8e8e8,stroke:#333,stroke-width:2px,color:#000
+    style Query fill:#e8e8e8,stroke:#333,stroke-width:1px,color:#000
+    style Scheduler fill:#e8e8e8,stroke:#333,stroke-width:2px,color:#000
+    style Process fill:#e8e8e8,stroke:#333,stroke-width:2px,color:#000
+    style EventHandler fill:#e8e8e8,stroke:#333,stroke-width:2px,color:#000
+```
+
+#### Try 또는 Cancel 단계 실패로 인한 리소스 불일치 해소 전략
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Order Server
+    participant Product Server
+    participant Point Server
+    participant DB
+
+    Client->>Order Server: 주문 + 결제 요청
+
+    Order Server->>Product Server: Try : 재고 예약
+    Product Server->>Order Server: 
+
+    Order Server->>Point Server: Try : 포인트 사용 예약
+    Point Server->>Order Server: ❌
+
+    alt 예약 실패 시
+        Order Server->>DB: 상태를 CANCEL으로 변경
+        Order Server->>Product Server: Cancel : 재고 예약 취소
+        Product Server->>Order Server: 
+        Order Server->>Point Server: Cancel : 포인트 예약 취소
+        Point Server->>Order Server: ❌
+    end
+
+    Order Server->>Client: 
+```
+
+- 취소 요청도 네트워크 통신을 통해 이루어지기 때문에 일부 자원이 제대로 취소되지 않는 문제가 발생할 수 있음
+
+**발생할 수 있는 경우**
+
+|케이스| Order     | Product   |Point|
+|---|-----------|-----------|---|
+|1| CANCELLED | Reserved  |Reserved|
+|2| CANCELLED | CANCELLED |Reserved|
+|3| CANCELLED | CANCELLED |CANCELLED|
+
+**해결 전략: 스케줄러를 통한 자동 보정**
+
+```mermaid
+graph TB
+    DB1[(DB)]
+    Query["select *<br/>from products<br/>where<br/>status = 'reserved'<br/>and created_at <= ?"]
+    Scheduler[Scheduler]
+    OrderDB[(Order)]
+    DB2[(DB)]
+    
+    DB1 --> Query
+    Query --> Scheduler
+    Scheduler -->|Order 상태 조회| OrderDB
+    Scheduler -->|Order가 취소라면 취소로 변경| DB2
+    
+    style DB1 fill:#e8e8e8,stroke:#333,stroke-width:2px,color:#000
+    style Query fill:#e8e8e8,stroke:#333,stroke-width:1px,color:#000
+    style Scheduler fill:#e8e8e8,stroke:#333,stroke-width:2px,color:#000
+    style OrderDB fill:#e8e8e8,stroke:#333,stroke-width:2px,color:#000
+    style DB2 fill:#e8e8e8,stroke:#333,stroke-width:2px,color:#000
+```
