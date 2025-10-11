@@ -43,6 +43,11 @@
     - [2-5. TCC 패턴의 데이터 불일치 상태와 해소 전략](#2-5-tcc-패턴의-데이터-불일치-상태와-해소-전략)
       - [Confirm 단계 실패로 인한 'Pending' 상태 해소 전략](#confirm-단계-실패로-인한-pending-상태-해소-전략)
       - [Try 또는 Cancel 단계 실패로 인한 리소스 불일치 해소 전략](#try-또는-cancel-단계-실패로-인한-리소스-불일치-해소-전략)
+  - [3. Saga](#3-saga)
+    - [3-1. Saga란?](#3-1-saga란)
+    - [3-2. Orchestration](#3-2-orchestration)
+      - [장점](#장점-2)
+      - [단점](#단점-2)
 
 # 프로젝트 세팅
 ## 1. DB 세팅
@@ -655,3 +660,70 @@ graph TB
     style OrderDB fill:#e8e8e8,stroke:#333,stroke-width:2px,color:#000
     style DB2 fill:#e8e8e8,stroke:#333,stroke-width:2px,color:#000
 ```
+
+## 3. Saga
+### 3-1. Saga란?
+- 분산 시스템에서 데이터 정합성을 보장하기 위해 사용하는 분산 트랜잭션 처리 방식
+- 각 작업을 개별 트랜잭션으로 나누고 실패 시에 보상 트랜잭션을 수행하여 정합성을 맞추는 방식
+  - 보상 트랜잭션 로직은 멱등해야 하며 재시도가 가능해야 함.
+- TCC와 달리 Saga는 리소스 예약 없이 즉시 상태 변경을 수행
+  - 재고 차감 예약이 아닌 즉시 차감
+  - 최종적 일관성(Eventual Consistency)을 보장
+- Choreography 방식과 Orchestration 방식이 존재
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Order Server
+    participant Product Server
+    participant Point Server
+
+    Client ->> Order Server: 주문 + 결제 요청
+    Order Server ->> Product Server: 재고 차감 요청
+    Product Server ->> Order Server: 
+
+    alt 재고 차감 성공 시 
+        Order Server ->> Point Server: 포인트 차감 요청
+        Point Server ->> Order Server: 
+    end
+    
+    alt 재고 차감 실패 시
+        Order Server->>Product Server: 재고 차감 롤백
+        Product Server->>Order Server: 
+    end
+    
+    Order Server ->> Client: 
+```
+
+## 3-2. Orchestration
+- Coordinator(또는 Orchestrator)가 각 참여 서비스들을 순차적으로 호출하며 전체 트랜잭션의 흐름을 제어하는 방식
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Order Server
+    participant Product Server
+    participant Point Server
+
+    Client ->> Order Server: 주문 + 결제 요청
+    
+    Order Server ->> Product Server: 재고 차감
+    Product Server ->> Order Server: 
+    
+    Order Server ->> Point Server: 포인트 차감
+    Point Server ->> Order Server: 
+    
+    alt 포인트 차감 실패 시 
+        Order Server ->> Product Server: 보상 트랜잭션 - 재고 원복 요청
+        Product Server ->> Order Server: 
+    end
+    
+    Order Server ->> Client: 
+```
+
+### 장점
+- 구현 난이도와 유지보수 난이도가 낮음
+
+### 단점
+- 시간이 지날수록 Coordinator(Orchestrator)가 복잡해짐
+- 서비스 간 결합도 증가
