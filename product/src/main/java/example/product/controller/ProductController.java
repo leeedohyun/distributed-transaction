@@ -6,7 +6,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 import example.product.application.ProductService;
 import example.product.application.RedisLockService;
+import example.product.application.dto.ProductBuyCancelResult;
 import example.product.application.dto.ProductBuyResult;
+import example.product.controller.dto.ProductBuyCancelRequest;
+import example.product.controller.dto.ProductBuyCancelResponse;
 import example.product.controller.dto.ProductBuyRequest;
 import example.product.controller.dto.ProductBuyResponse;
 
@@ -36,6 +39,26 @@ public class ProductController {
             ProductBuyResult buyResult = productService.buy(request.toCommand());
 
             return new ProductBuyResponse(buyResult.totalPrice());
+        } finally {
+            redisLockService.releaseLock(lockKey);
+        }
+    }
+
+    @PostMapping("/product/buy/cancel")
+    public ProductBuyCancelResponse buyCancel(@RequestBody ProductBuyCancelRequest request) {
+        String lockKey = "product:orchestration:" + request.requestId();
+
+        boolean lockAcquired = redisLockService.tryLock(lockKey, request.requestId());
+
+        if (!lockAcquired) {
+            System.out.println("락 획득에 실패하였습니다.");
+            throw new RuntimeException("락 획득에 실패하였습니다.");
+        }
+
+        try {
+            ProductBuyCancelResult buyResult = productService.cancel(request.toCommand());
+
+            return new ProductBuyCancelResponse(buyResult.totalPrice());
         } finally {
             redisLockService.releaseLock(lockKey);
         }

@@ -40,4 +40,8 @@ public class Product {
 
         this.quantity = this.quantity - quantity;
     }
+
+    public void cancel(Long quantity) {
+        this.quantity = this.quantity + quantity;
+    }
 }
