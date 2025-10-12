@@ -48,6 +48,7 @@
     - [3-2. Orchestration](#3-2-orchestration)
       - [장점](#장점-2)
       - [단점](#단점-2)
+      - [현재 구조의 문제점과 해결 방법](#현재-구조의-문제점과-해결-방법)
 
 # 프로젝트 세팅
 ## 1. DB 세팅
@@ -727,3 +728,81 @@ sequenceDiagram
 ### 단점
 - 시간이 지날수록 Coordinator(Orchestrator)가 복잡해짐
 - 서비스 간 결합도 증가
+
+### 현재 구조의 문제점과 해결 방법
+#### 현재 주문 처리 흐름
+
+```mermaid
+sequenceDiagram
+  participant Client
+  participant Order Server
+  participant Product Server
+  participant Point Server
+
+  Client->>Order Server: 주문 + 결제 요청
+  Order Server->>Product Server: 재고 차감
+  Product Server->>Order Server: 
+  Order Server->>Point Server: 포인트 차감
+  Point Server->>Order Server: 
+
+  alt 재고 차감 혹은 포인트 차감 실패 시
+    Order Server->>Product Server: 재고 차감 롤백
+    Product Server->>Order Server: 
+    Order Server->>Point Server: 포인트 차감 롤백
+    Point Server->>Order Server: 
+  end
+
+  Order Server->>Client: 
+```
+
+#### 롤백 도중 에러 발생 가능성
+
+```mermaid
+sequenceDiagram
+  participant Client
+  participant Order Server
+  participant Product Server
+  participant Point Server
+
+  Client->>Order Server: 주문 + 결제 요청
+  Order Server->>Product Server: 재고 차감
+  Product Server->>Order Server: 
+  Order Server->>Point Server: 포인트 차감
+  Point Server->>Order Server: 
+
+  alt 재고 차감 혹은 포인트 차감 실패 시
+    Order Server->>Product Server: 재고 차감 롤백
+    Product Server->>Order Server: 
+    Order Server->>Point Server: 포인트 차감 롤백
+    Point Server->>Order Server: ❌
+  end
+
+  Order Server->>Client: 
+```
+
+- 현재 구조에서는 주문의 상태만으로 문제를 유추해야 하므로 운영상 어려움이 발생할 수 있음 
+- 롤백 도중 에러 발생 시 데이터를 기록하여 추후 재시도 가능하도록 처리 필요
+
+#### 데이터 기반 롤백 재처리 흐름
+
+```mermaid
+sequenceDiagram
+    participant Order Server
+    participant DB
+    participant Product Server
+    participant Point Server
+
+    Order Server ->> DB: 보상 트랜잭션 수행해야 할 목록 조회
+    DB ->> Order Server: 
+
+    Order Server ->> Product Server: 재고 차감 롤백 요청
+    Product Server ->> Order Server: 
+
+    Order Server ->> Point Server: 포인트 사용 롤백 요청
+    Point Server ->> Order Server: 
+
+    Order Server ->> DB: 처리 상태를 완료로 변경
+    DB ->> Order Server: 
+```
+
+- 데이터 활용 방법: 주기적인 배치 프로그램이나 스케줄러를 통해 처리
