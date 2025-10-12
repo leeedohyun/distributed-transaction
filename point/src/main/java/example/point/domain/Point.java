@@ -5,6 +5,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 @Entity
 @Table(name = "points")
@@ -16,6 +17,9 @@ public class Point {
     private Long userId;
 
     private Long amount;
+
+    @Version
+    private Long version;
 
     public Point() {
     }
@@ -31,5 +35,9 @@ public class Point {
         }
 
         this.amount = this.amount - amount;
+    }
+
+    public Long getId() {
+        return id;
     }
 }
