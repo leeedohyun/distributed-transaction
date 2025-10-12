@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import example.point.application.PointService;
 import example.point.application.RedisLockService;
+import example.point.controller.dto.PointUseCancelRequest;
 import example.point.controller.dto.PointUseRequest;
 import io.netty.handler.timeout.ReadTimeoutException;
 
@@ -32,6 +33,23 @@ public class PointController {
 
         try {
             pointService.use(request.toCommand());
+        } finally {
+            redisLockService.releaseLock(lockKey);
+        }
+    }
+
+    @PostMapping("/point/use/cancel")
+    public void cacel(@RequestBody PointUseCancelRequest request) {
+        String lockKey = "point:orchestration:" + request.requestId();
+
+        boolean lockAcquired = redisLockService.tryLock(lockKey, request.requestId());
+
+        if (!lockAcquired) {
+            throw new ReadTimeoutException("락 획득에 실패하였습니다.");
+        }
+
+        try {
+            pointService.cancel(request.toCommand());
         } finally {
             redisLockService.releaseLock(lockKey);
         }
