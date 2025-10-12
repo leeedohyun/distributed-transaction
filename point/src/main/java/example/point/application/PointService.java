@@ -58,8 +58,11 @@ public class PointService {
                 TransactionType.USE
         );
 
+        // 원래는 사용 이력이 없으면 예외를 던지도록 되어 있었음.
+        // 하지만 보상 트랜잭션 수행 시 예외를 던지면 retry 로직이 실행됨.
+        // 따라서 사용 이력이 없더라도 정상적으로 처리하도록 변경
         if (useHistory == null) {
-            throw new RuntimeException("포인트 사용 내역이 존재하지 않습니다.");
+            return;
         }
 
         PointTransactionHistory cancelHistory = pointTransactionHistoryRepository.findByRequestIdAndTransactionType(

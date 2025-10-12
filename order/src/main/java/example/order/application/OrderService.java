@@ -7,6 +7,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import example.order.application.dto.CreateOrderCommand;
 import example.order.application.dto.CreateOrderResult;
+import example.order.application.dto.OrderDto;
 import example.order.domain.Order;
 import example.order.domain.OrderItem;
 import example.order.infrastructure.OrderItemRepository;
@@ -35,5 +36,39 @@ public class OrderService {
         orderItemRepository.saveAll(orderItems);
 
         return new CreateOrderResult(order.getId());
+    }
+
+    public OrderDto getOrder(Long orderId) {
+        List<OrderItem> orderItems = orderItemRepository.findAllByOrderId(orderId);
+
+        return new OrderDto(
+                orderItems.stream()
+                        .map(item -> new OrderDto.OrderItem(item.getProductId(), item.getQuantity()))
+                        .toList()
+        );
+    }
+
+    @Transactional
+    public void request(Long orderId) {
+        Order order = orderRepository.findById(orderId).orElseThrow();
+
+        order.request();
+        orderRepository.save(order);
+    }
+
+    @Transactional
+    public void complete(Long orderId) {
+        Order order = orderRepository.findById(orderId).orElseThrow();
+
+        order.complete();
+        orderRepository.save(order);
+    }
+
+    @Transactional
+    public void fail(Long orderId) {
+        Order order = orderRepository.findById(orderId).orElseThrow();
+
+        order.fail();
+        orderRepository.save(order);
     }
 }
