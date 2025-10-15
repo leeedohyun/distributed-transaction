@@ -43,6 +43,12 @@
     - [2-5. TCC 패턴의 데이터 불일치 상태와 해소 전략](#2-5-tcc-패턴의-데이터-불일치-상태와-해소-전략)
       - [Confirm 단계 실패로 인한 'Pending' 상태 해소 전략](#confirm-단계-실패로-인한-pending-상태-해소-전략)
       - [Try 또는 Cancel 단계 실패로 인한 리소스 불일치 해소 전략](#try-또는-cancel-단계-실패로-인한-리소스-불일치-해소-전략)
+  - [3. Saga](#3-saga)
+    - [3-1. Saga란?](#3-1-saga란)
+    - [3-2. Orchestration](#3-2-orchestration)
+      - [장점](#장점-2)
+      - [단점](#단점-2)
+      - [현재 구조의 문제점과 해결 방법](#현재-구조의-문제점과-해결-방법)
 
 # 프로젝트 세팅
 ## 1. DB 세팅
@@ -655,3 +661,148 @@ graph TB
     style OrderDB fill:#e8e8e8,stroke:#333,stroke-width:2px,color:#000
     style DB2 fill:#e8e8e8,stroke:#333,stroke-width:2px,color:#000
 ```
+
+## 3. Saga
+### 3-1. Saga란?
+- 분산 시스템에서 데이터 정합성을 보장하기 위해 사용하는 분산 트랜잭션 처리 방식
+- 각 작업을 개별 트랜잭션으로 나누고 실패 시에 보상 트랜잭션을 수행하여 정합성을 맞추는 방식
+  - 보상 트랜잭션 로직은 멱등해야 하며 재시도가 가능해야 함.
+- TCC와 달리 Saga는 리소스 예약 없이 즉시 상태 변경을 수행
+  - 재고 차감 예약이 아닌 즉시 차감
+  - 최종적 일관성(Eventual Consistency)을 보장
+- Choreography 방식과 Orchestration 방식이 존재
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Order Server
+    participant Product Server
+    participant Point Server
+
+    Client ->> Order Server: 주문 + 결제 요청
+    Order Server ->> Product Server: 재고 차감 요청
+    Product Server ->> Order Server: 
+
+    alt 재고 차감 성공 시 
+        Order Server ->> Point Server: 포인트 차감 요청
+        Point Server ->> Order Server: 
+    end
+    
+    alt 재고 차감 실패 시
+        Order Server->>Product Server: 재고 차감 롤백
+        Product Server->>Order Server: 
+    end
+    
+    Order Server ->> Client: 
+```
+
+## 3-2. Orchestration
+- Coordinator(또는 Orchestrator)가 각 참여 서비스들을 순차적으로 호출하며 전체 트랜잭션의 흐름을 제어하는 방식
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Order Server
+    participant Product Server
+    participant Point Server
+
+    Client ->> Order Server: 주문 + 결제 요청
+    
+    Order Server ->> Product Server: 재고 차감
+    Product Server ->> Order Server: 
+    
+    Order Server ->> Point Server: 포인트 차감
+    Point Server ->> Order Server: 
+    
+    alt 포인트 차감 실패 시 
+        Order Server ->> Product Server: 보상 트랜잭션 - 재고 원복 요청
+        Product Server ->> Order Server: 
+    end
+    
+    Order Server ->> Client: 
+```
+
+### 장점
+- 구현 난이도와 유지보수 난이도가 낮음
+
+### 단점
+- 시간이 지날수록 Coordinator(Orchestrator)가 복잡해짐
+- 서비스 간 결합도 증가
+
+### 현재 구조의 문제점과 해결 방법
+#### 현재 주문 처리 흐름
+
+```mermaid
+sequenceDiagram
+  participant Client
+  participant Order Server
+  participant Product Server
+  participant Point Server
+
+  Client->>Order Server: 주문 + 결제 요청
+  Order Server->>Product Server: 재고 차감
+  Product Server->>Order Server: 
+  Order Server->>Point Server: 포인트 차감
+  Point Server->>Order Server: 
+
+  alt 재고 차감 혹은 포인트 차감 실패 시
+    Order Server->>Product Server: 재고 차감 롤백
+    Product Server->>Order Server: 
+    Order Server->>Point Server: 포인트 차감 롤백
+    Point Server->>Order Server: 
+  end
+
+  Order Server->>Client: 
+```
+
+#### 롤백 도중 에러 발생 가능성
+
+```mermaid
+sequenceDiagram
+  participant Client
+  participant Order Server
+  participant Product Server
+  participant Point Server
+
+  Client->>Order Server: 주문 + 결제 요청
+  Order Server->>Product Server: 재고 차감
+  Product Server->>Order Server: 
+  Order Server->>Point Server: 포인트 차감
+  Point Server->>Order Server: 
+
+  alt 재고 차감 혹은 포인트 차감 실패 시
+    Order Server->>Product Server: 재고 차감 롤백
+    Product Server->>Order Server: 
+    Order Server->>Point Server: 포인트 차감 롤백
+    Point Server->>Order Server: ❌
+  end
+
+  Order Server->>Client: 
+```
+
+- 현재 구조에서는 주문의 상태만으로 문제를 유추해야 하므로 운영상 어려움이 발생할 수 있음 
+- 롤백 도중 에러 발생 시 데이터를 기록하여 추후 재시도 가능하도록 처리 필요
+
+#### 데이터 기반 롤백 재처리 흐름
+
+```mermaid
+sequenceDiagram
+    participant Order Server
+    participant DB
+    participant Product Server
+    participant Point Server
+
+    Order Server ->> DB: 보상 트랜잭션 수행해야 할 목록 조회
+    DB ->> Order Server: 
+
+    Order Server ->> Product Server: 재고 차감 롤백 요청
+    Product Server ->> Order Server: 
+
+    Order Server ->> Point Server: 포인트 사용 롤백 요청
+    Point Server ->> Order Server: 
+
+    Order Server ->> DB: 처리 상태를 완료로 변경
+    DB ->> Order Server: 
+```
+
+- 데이터 활용 방법: 주기적인 배치 프로그램이나 스케줄러를 통해 처리
