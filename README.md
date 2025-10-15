@@ -49,6 +49,9 @@
       - [장점](#장점-2)
       - [단점](#단점-2)
       - [현재 구조의 문제점과 해결 방법](#현재-구조의-문제점과-해결-방법)
+    - [3.3. Choreography](#33-choreography)
+      - [장점](#장점-3)
+      - [단점](#단점-3)
 
 # 프로젝트 세팅
 ## 1. DB 세팅
@@ -806,3 +809,57 @@ sequenceDiagram
 ```
 
 - 데이터 활용 방법: 주기적인 배치 프로그램이나 스케줄러를 통해 처리
+
+## 3.3. Choreography
+- Coordinator 없이 각 서비스가 이벤트를 발행하고 구독하며 트랜잭션 흐름을 제어하는 방식
+
+```mermaid
+sequenceDiagram
+    title 주문 시스템 - 정상 시나리오
+    
+    participant Client
+    participant Order Server
+    participant Event Queue
+    participant Product Server
+    participant Point Server
+
+    Client ->> Order Server: 주문 + 결제 요청
+    Order Server ->> Event Queue: 재고 차감 Event 발행
+    Event Queue ->> Product Server: Event 전달
+    Product Server ->> Product Server: 재고 차감
+    Product Server ->> Event Queue: 재고 차감 완료 Event 전달
+    Event Queue ->> Point Server: Event 전달
+    Point Server ->> Point Server: 포인트 차감
+    Point Server ->> Event Queue: 포인트 차감 완료 Event 전달
+    Event Queue ->> Order Server: Event 전달
+    Order Server ->> Order Server: 주문 완료
+```
+
+```mermaid
+sequenceDiagram
+    title 주문 시스템 - 포인트 차감 실패 시나리오
+
+    participant Client
+    participant Order Server
+    participant Event Queue
+    participant Product Server
+    participant Point Server
+
+    Client ->> Order Server: 주문 + 결제 요청
+    Order Server ->> Event Queue: 재고차감 Event 발행
+    Event Queue ->> Product Server: Event 전달
+    Product Server ->> Product Server: 재고차감
+    Product Server ->> Event Queue: 재고차감 완료 Event 전달
+    Event Queue ->> Point Server: Event 전달
+    Point Server ->> Point Server: ❌ 포인트 차감 실패
+    Point Server ->> Event Queue: 포인트 차감 실패 Event 전달
+    Event Queue ->> Product Server: Event 전달
+    Product Server ->> Product Server: 재고차감 롤백
+```
+
+### 장점
+- 이벤트 기반으로 동작하다 보니 서비스 간 결합도가 낮음
+
+### 단점
+- 구현 난이도 상승
+- 흐름 파악이 어려움
