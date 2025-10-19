@@ -49,6 +49,16 @@
       - [장점](#장점-2)
       - [단점](#단점-2)
       - [현재 구조의 문제점과 해결 방법](#현재-구조의-문제점과-해결-방법)
+    - [3.3. Choreography](#33-choreography)
+      - [장점](#장점-3)
+      - [단점](#단점-3)
+      - [Kafka란?](#kafka란)
+- [실무에서 많이 사용하는 것은 무엇인가요?](#실무에서-많이-사용하는-것은-무엇인가요)
+  - [1. 2PC](#1-2pc)
+  - [2. TCC](#2-tcc)
+  - [3. Saga](#3-saga-1)
+    - [3-1. Orchestration](#3-1-orchestration)
+    - [3-2. Choreography](#3-2-choreography)
 
 # 프로젝트 세팅
 ## 1. DB 세팅
@@ -806,3 +816,186 @@ sequenceDiagram
 ```
 
 - 데이터 활용 방법: 주기적인 배치 프로그램이나 스케줄러를 통해 처리
+
+## 3.3. Choreography
+- Coordinator 없이 각 서비스가 이벤트를 발행하고 구독하며 트랜잭션 흐름을 제어하는 방식
+
+```mermaid
+sequenceDiagram
+    title 주문 시스템 - 정상 시나리오
+    
+    participant Client
+    participant Order Server
+    participant Event Queue
+    participant Product Server
+    participant Point Server
+
+    Client ->> Order Server: 주문 + 결제 요청
+    Order Server ->> Event Queue: 재고 차감 Event 발행
+    Event Queue ->> Product Server: Event 전달
+    Product Server ->> Product Server: 재고 차감
+    Product Server ->> Event Queue: 재고 차감 완료 Event 전달
+    Event Queue ->> Point Server: Event 전달
+    Point Server ->> Point Server: 포인트 차감
+    Point Server ->> Event Queue: 포인트 차감 완료 Event 전달
+    Event Queue ->> Order Server: Event 전달
+    Order Server ->> Order Server: 주문 완료
+```
+
+```mermaid
+sequenceDiagram
+    title 주문 시스템 - 포인트 차감 실패 시나리오
+
+    participant Client
+    participant Order Server
+    participant Event Queue
+    participant Product Server
+    participant Point Server
+
+    Client ->> Order Server: 주문 + 결제 요청
+    Order Server ->> Event Queue: 재고차감 Event 발행
+    Event Queue ->> Product Server: Event 전달
+    Product Server ->> Product Server: 재고차감
+    Product Server ->> Event Queue: 재고차감 완료 Event 전달
+    Event Queue ->> Point Server: Event 전달
+    Point Server ->> Point Server: ❌ 포인트 차감 실패
+    Point Server ->> Event Queue: 포인트 차감 실패 Event 전달
+    Event Queue ->> Product Server: Event 전달
+    Product Server ->> Product Server: 재고차감 롤백
+```
+
+### 장점
+- 이벤트 기반으로 동작하다 보니 서비스 간 결합도가 낮음
+
+### 단점
+- 구현 난이도 상승
+- 흐름 파악이 어려움
+
+### Kafka란?
+- 분산형 이벤트 스트리밍 플랫폼
+
+```mermaid
+%% Kafka 기본 구조
+flowchart LR
+    Producer --> Topic --> Consumer
+```
+
+- Producer: 이벤트를 생성하여 Kafka로 전송하는 역할
+- Topic: 이벤트가 저장되는 논리적인 채널
+- Consumer: Topic에서 이벤트를 구독하고 처리하는 역할
+
+```yaml
+version: "3.8"
+
+services:
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      - BITNAMI_DEBUG=true
+      - KAFKA_ENABLE_KRAFT=yes
+      - KAFKA_KRAFT_CLUSTER_ID=abcdefghijklmnopqrstuv
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+```
+
+```
+docker compose up -d
+```
+
+[https://github.com/user-attachments/assets/bf2bef49-c68d-4c0f-9d35-62313dcf58a0](Kafka 실행 화면)
+
+- [Bitnami Kafka 이슈 참고](https://github.com/bitnami/containers/issues/86597)
+- bitnami/kafka 이미지는 Bitnami Secure 이미지 구독을 통해서만 액세스 가능 
+- 기존 무료 이미지를 사용하려면 bitnamilegacy/kafka 사용 (업데이트 지원 없음)
+
+```yaml
+version: "3.8"
+
+services:
+  kafka:
+    image: bitnamilegacy/kafka:3.7
+    container_name: kafka
+    ...
+```
+
+### Kafka 비동기 처리에서의 문제점
+#### 동기식 클라이언트–서버 구조
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Server
+
+    Client->>Server: 
+    activate Server
+    Server->>Server: 처리중 
+    deactivate Server
+    
+    Server->>Client: 
+```
+
+- 클라이언트는 서버가 응답할 때까지 대기
+
+#### Kafka 기반 비동기 구조
+
+```mermaid
+sequenceDiagram
+  participant Client
+  participant Order
+  participant Topic
+  participant Consumer
+
+  Client->>Order: 
+  Order->>Topic: 
+  Order->>Client: 
+
+  Topic->>Consumer: 
+  activate Consumer
+  Consumer-->>Consumer: 처리중
+  deactivate Consumer
+  
+  Consumer->>Topic: 
+  Topic->>Order: 
+```
+
+- 요청을 보내고 바로 클라이언트에게 응답을 하기 때문에 처리가 완료되지 않을 수 있음
+- 상태를 알 수 있는 폴링 API를 제공해야 함
+
+# 실무에서 많이 사용하는 것은 무엇인가요?
+## 1. 2PC
+- Two-Phase Commit Protocol의 약자로 분산 시스템에서 트랜잭션의 원자성을 보장하기 위해 사용하는 프로토콜
+- Prepare 단계, Commit 단계 트랜잭션을 두 단계로 나누어 처리함.
+- 실용성이 낮기 때문에 MSA 환경에서는 거의 사용되지 않음.
+
+## 2. TCC
+- TCC(Try-Confirm-Cancel)는 분산 시스템에서 데이터 정합성을 보장하기 위해 사용하는 트랜잭션 처리 방식
+- Try, Confirm, Cancel의 세 단계로 나누어 트랜잭션을 관리
+- 강한 정합성이 필요한 영역에서 제한적으로 사용되며 일반적인 서비스에서는 사용 빈도가 낮음.
+
+## 3. Saga
+- 분산 시스템이서 데이터 정합성을 보장하기 위해 사용하는 분산 트랜잭션 처리 방식
+- 각 작업을 개별 트랜잭션으로 나누고 실패 시에 보상 트랜잭션을 수행하여 정합성을 맞추는 방식
+- TCC와 달리 Saga는 리소스 예약 없이 즉시 상태 변경 수행
+  - 재고 차감 예약이 아닌 즉시 차감
+  - 최종적 일관성(Eventual Consistency)을 보장
+
+### 3-1. Orchestration
+- Coordinator(또는 Orchestrator)가 각 참여 서비스들을 순차적으로 호출하며 전체 트랜잭션의 흐름을 제어하는 방식
+- 흐름 파악이 용이하다는 장점이 존재하기 때문에 실무에서 많이 사용하는 방식
+
+### 3-2. Choreography
+- Coordinator 없이 각 서비스가 이벤트를 발행하고 구독하며 이를 통해 전체 트랜잭션의 흐름을 제어하는 방식
+- 흐름 파악이 어렵다는 단점이 존재하며 로직의 처리 시간이 길어질 수 있는 상황일 때 많이 사용됨.
