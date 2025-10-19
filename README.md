@@ -905,6 +905,12 @@ services:
       - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
 ```
 
+```
+docker compose up -d
+```
+
+[https://github.com/user-attachments/assets/bf2bef49-c68d-4c0f-9d35-62313dcf58a0](Kafka 실행 화면)
+
 - [Bitnami Kafka 이슈 참고](https://github.com/bitnami/containers/issues/86597)
 - bitnami/kafka 이미지는 Bitnami Secure 이미지 구독을 통해서만 액세스 가능 
 - 기존 무료 이미지를 사용하려면 bitnamilegacy/kafka 사용 (업데이트 지원 없음)
