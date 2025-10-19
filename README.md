@@ -432,6 +432,8 @@ xa commit 'point_1';
 - 2PC 보다는 다른 방법을 사용하여 분산 트랜잭션 구현
 
 ## 2. TCC (Try-Confirm-Cancel)
+관련 코드는 [TCC 브랜치](https://github.com/leeedohyun/distributed-transaction/tree/tcc)에서 직접 확인하실 수 있습니다.
+
 ### 2-1. TCC란?
 - 분산 시스템에서 데이터 정합성을 보장하기 위해 사용하는 분산 트랜잭션 처리 방식
 - 전통적인 트랜잭션은 데이터베이스의 커밋과 롤백에 의존하는 반면, TCC는 애플리케이션 레벨에서 논리적으로 트랜잭션을 관리
@@ -707,6 +709,8 @@ sequenceDiagram
 ```
 
 ## 3-2. Orchestration
+관련 코드는 [Orchestration 브랜치](https://github.com/leeedohyun/distributed-transaction/tree/saga-orchestration)에서 직접 확인하실 수 있습니다.
+
 - Coordinator(또는 Orchestrator)가 각 참여 서비스들을 순차적으로 호출하며 전체 트랜잭션의 흐름을 제어하는 방식
 
 ```mermaid
@@ -818,6 +822,8 @@ sequenceDiagram
 - 데이터 활용 방법: 주기적인 배치 프로그램이나 스케줄러를 통해 처리
 
 ## 3.3. Choreography
+관련 코드는 [Choreography 브랜치](https://github.com/leeedohyun/distributed-transaction/tree/saga-choreography)에서 직접 확인하실 수 있습니다.
+
 - Coordinator 없이 각 서비스가 이벤트를 발행하고 구독하며 트랜잭션 흐름을 제어하는 방식
 
 ```mermaid
