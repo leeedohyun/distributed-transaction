@@ -1,5 +1,7 @@
 package example.order.controller;
 
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
@@ -11,6 +13,7 @@ import example.order.application.dto.CreateOrderResult;
 import example.order.controller.dto.CreateOrderRequest;
 import example.order.controller.dto.CreateOrderResponse;
 import example.order.controller.dto.PlaceOrderRequest;
+import example.order.domain.Order;
 
 @RestController
 public class OrderController {
@@ -47,5 +50,10 @@ public class OrderController {
         } finally {
             redisLockService.releaseLock(lockKey);
         }
+    }
+
+    @GetMapping("/order/{id}/status")
+    public Order.OrderStatus getStatus(@PathVariable("id") Long id) {
+        return orderService.getStatus(id);
     }
 }

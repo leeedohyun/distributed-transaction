@@ -924,3 +924,46 @@ services:
     container_name: kafka
     ...
 ```
+
+### Kafka 비동기 처리에서의 문제점
+#### 동기식 클라이언트–서버 구조
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Server
+
+    Client->>Server: 
+    activate Server
+    Server->>Server: 처리중 
+    deactivate Server
+    
+    Server->>Client: 
+```
+
+- 클라이언트는 서버가 응답할 때까지 대기
+
+#### Kafka 기반 비동기 구조
+
+```mermaid
+sequenceDiagram
+  participant Client
+  participant Order
+  participant Topic
+  participant Consumer
+
+  Client->>Order: 
+  Order->>Topic: 
+  Order->>Client: 
+
+  Topic->>Consumer: 
+  activate Consumer
+  Consumer-->>Consumer: 처리중
+  deactivate Consumer
+  
+  Consumer->>Topic: 
+  Topic->>Order: 
+```
+
+- 요청을 보내고 바로 클라이언트에게 응답을 하기 때문에 처리가 완료되지 않을 수 있음
+- 상태를 알 수 있는 폴링 API를 제공해야 함
