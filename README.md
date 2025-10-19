@@ -915,7 +915,7 @@ services:
 docker compose up -d
 ```
 
-[https://github.com/user-attachments/assets/bf2bef49-c68d-4c0f-9d35-62313dcf58a0](Kafka 실행 화면)
+![Kafka 실행 화면](https://github.com/user-attachments/assets/bf2bef49-c68d-4c0f-9d35-62313dcf58a0)
 
 - [Bitnami Kafka 이슈 참고](https://github.com/bitnami/containers/issues/86597)
 - bitnami/kafka 이미지는 Bitnami Secure 이미지 구독을 통해서만 액세스 가능 
