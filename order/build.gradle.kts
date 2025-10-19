@@ -23,6 +23,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-data-redis")
 
+    implementation("org.springframework.kafka:spring-kafka")
     implementation("org.springframework.retry:spring-retry")
 
     runtimeOnly("com.mysql:mysql-connector-j")
