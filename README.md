@@ -52,6 +52,7 @@
     - [3.3. Choreography](#33-choreography)
       - [장점](#장점-3)
       - [단점](#단점-3)
+      - [Kafka란?](#kafka란)
 
 # 프로젝트 세팅
 ## 1. DB 세팅
@@ -863,3 +864,57 @@ sequenceDiagram
 ### 단점
 - 구현 난이도 상승
 - 흐름 파악이 어려움
+
+### Kafka란?
+- 분산형 이벤트 스트리밍 플랫폼
+
+```mermaid
+%% Kafka 기본 구조
+flowchart LR
+    Producer --> Topic --> Consumer
+```
+
+- Producer: 이벤트를 생성하여 Kafka로 전송하는 역할
+- Topic: 이벤트가 저장되는 논리적인 채널
+- Consumer: Topic에서 이벤트를 구독하고 처리하는 역할
+
+```yaml
+version: "3.8"
+
+services:
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      - BITNAMI_DEBUG=true
+      - KAFKA_ENABLE_KRAFT=yes
+      - KAFKA_KRAFT_CLUSTER_ID=abcdefghijklmnopqrstuv
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+```
+
+- [Bitnami Kafka 이슈 참고](https://github.com/bitnami/containers/issues/86597)
+- bitnami/kafka 이미지는 Bitnami Secure 이미지 구독을 통해서만 액세스 가능 
+- 기존 무료 이미지를 사용하려면 bitnamilegacy/kafka 사용 (업데이트 지원 없음)
+
+```yaml
+version: "3.8"
+
+services:
+  kafka:
+    image: bitnamilegacy/kafka:3.7
+    container_name: kafka
+    ...
+```
